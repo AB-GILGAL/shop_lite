@@ -1108,3 +1108,357 @@ implementations together:
                     Providers
                    ↙          ↘
               Data              Domain
+
+
+---
+
+## 8. Products Feature Runtime Flow
+
+The Products feature follows a layered flow from the presentation layer through
+the domain and data layers to the external Products API.
+
+The feature uses Riverpod for dependency injection and state management.
+
+### 8.1 Product Listing Flow
+
+When `ProductsPage` is displayed, it watches the
+`productControllerProvider`.
+
+```text
+ProductsPage
+     ↓
+productControllerProvider
+     ↓
+ProductController
+     ↓
+productRepositoryProvider
+     ↓
+ProductRepositoryImpl
+     ↓
+ProductRemoteDataSourceImpl
+     ↓
+ApiClient
+     ↓
+Products API
+
+The API response then travels back through the same layers:
+
+Products API
+     ↓
+ApiClient
+     ↓
+ProductRemoteDataSourceImpl
+     ↓
+ProductModel
+     ↓
+ProductRepositoryImpl
+     ↓
+ProductController
+     ↓
+ProductsPage
+     ↓
+ProductCard
+
+### 8.2 Step-by-Step Product Listing Flow
+Step 1 — ProductsPage watches the controller
+
+ProductsPage obtains the current state of the products request through:
+
+final productsAsync = ref.watch(productControllerProvider);
+
+The page reacts to the AsyncValue state and displays one of three states:
+
+Loading
+Error
+Data
+Step 2 — ProductController requests products
+
+The ProductController calls the repository when its build() method
+executes.
+
+@override
+Future<List<Product>> build() async {
+  final repository = ref.read(productRepositoryProvider);
+
+  return repository.getProducts();
+}
+
+The controller therefore does not communicate directly with the API or
+remote data source.
+
+It depends on the domain repository abstraction.
+
+Step 3 — Riverpod provides the repository
+
+The productRepositoryProvider creates the concrete repository:
+
+@riverpod
+ProductRepository productRepository(Ref ref) {
+  final remoteDataSource = ref.read(productRemoteDataSourceProvider);
+
+  return ProductRepositoryImpl(
+    remoteDataSource: remoteDataSource,
+  );
+}
+
+The controller receives a ProductRepository, while Riverpod determines
+which implementation is supplied.
+
+Step 4 — Repository requests the remote data
+
+ProductRepositoryImpl coordinates access to the remote data source.
+
+The repository implements the domain contract:
+
+ProductRepository
+
+while the concrete implementation is:
+
+ProductRepositoryImpl
+
+This keeps the domain layer independent of the external API implementation.
+
+Step 5 — Remote data source calls the API
+
+ProductRemoteDataSourceImpl receives an ApiClient through dependency
+injection.
+
+It calls the Products endpoint:
+
+GET /products
+
+The ApiClient handles the actual HTTP communication.
+
+Step 6 — API response is converted into models
+
+The remote data source receives the API response and converts each JSON
+object into a ProductModel.
+
+return response.data!
+    .map(
+      (json) => ProductModel.fromJson(
+        json as Map<String, dynamic>,
+      ),
+    )
+    .toList();
+
+The API's JSON representation is therefore converted into typed Dart objects
+before the data reaches the presentation layer.
+
+Step 7 — Repository returns domain products
+
+The repository returns the products to the controller through the
+ProductRepository contract.
+
+The controller exposes the result as an AsyncValue<List<Product>>.
+
+Step 8 — ProductsPage renders the result
+
+When the request succeeds, ProductsPage receives the product list and
+creates a ProductCard for each product.
+
+List<Product>
+     ↓
+GridView.builder
+     ↓
+ProductCard
+
+Each card displays information such as:
+
+Product image
+Product title
+Category
+Price
+
+### 8.3 Product Details Flow
+
+The product details flow follows the same architectural pattern but uses
+ProductDetailsController.
+
+ProductsPage
+     ↓
+ProductCard
+     ↓
+GoRouter
+     ↓
+ProductDetailsPage
+     ↓
+productDetailsControllerProvider(productId)
+     ↓
+ProductDetailsController
+     ↓
+ProductRepository
+     ↓
+ProductRepositoryImpl
+     ↓
+ProductRemoteDataSourceImpl
+     ↓
+ApiClient
+     ↓
+GET /products/{id}
+
+The response returns through the data layer:
+
+GET /products/{id}
+     ↓
+ApiClient
+     ↓
+ProductRemoteDataSourceImpl
+     ↓
+ProductModel
+     ↓
+ProductRepositoryImpl
+     ↓
+ProductDetailsController
+     ↓
+ProductDetailsPage
+
+### 8.4 Product Details Request
+
+ProductDetailsController receives the product ID as a build parameter:
+
+@override
+Future<Product> build(int productId) async {
+  final repository = ref.read(productRepositoryProvider);
+
+  return repository.getProductById(productId);
+}
+
+The product ID therefore travels from the route into the controller and
+ultimately becomes part of the API request.
+
+For example:
+
+Product ID: 25
+
+ProductDetailsPage
+       ↓
+ProductDetailsController(25)
+       ↓
+ProductRepository.getProductById(25)
+       ↓
+ProductRemoteDataSource
+       ↓
+GET /products/25
+
+### 8.5 Loading and Error Flow
+
+Both product controllers expose asynchronous state through Riverpod.
+
+The presentation layer reacts to this state using AsyncValue.when().
+
+Loading
+Request starts
+     ↓
+AsyncLoading
+     ↓
+CircularProgressIndicator
+Success
+API response
+     ↓
+AsyncData
+     ↓
+Products/Product Details UI
+Error
+API/network/repository error
+     ↓
+AsyncError
+     ↓
+Error UI
+     ↓
+Try Again
+
+### 8.6 Retry Flow
+
+The product listing page provides a retry mechanism through
+ProductController.refreshProducts().
+
+Future<void> refreshProducts() async {
+  state = const AsyncLoading();
+
+  state = await AsyncValue.guard(() {
+    final repository = ref.read(productRepositoryProvider);
+
+    return repository.getProducts();
+  });
+}
+
+The flow is:
+
+User taps "Try Again"
+        ↓
+refreshProducts()
+        ↓
+AsyncLoading
+        ↓
+Repository
+        ↓
+Remote Data Source
+        ↓
+API
+        ↓
+AsyncData / AsyncError
+        ↓
+UI updates
+
+For product details, the page invalidates the parameterized provider:
+
+ref.invalidate(
+  productDetailsControllerProvider(productId),
+);
+
+This causes the product-details request to execute again.
+
+### 8.7 Complete Products Feature Flow
+
+The complete architecture can therefore be represented as:
+
+                         PRESENTATION
+                              │
+             ┌────────────────┴────────────────┐
+             │                                 │
+       ProductsPage                    ProductDetailsPage
+             │                                 │
+             ▼                                 ▼
+    ProductController              ProductDetailsController
+             │                                 │
+             └──────────────┬──────────────────┘
+                            │
+                            ▼
+                  productRepositoryProvider
+                            │
+                            ▼
+                 ProductRepositoryImpl
+                            │
+                            ▼
+             ProductRemoteDataSourceImpl
+                            │
+                            ▼
+                       ApiClient
+                            │
+                            ▼
+                    Products API
+                            │
+                            ▼
+                    JSON Response
+                            │
+                            ▼
+                      ProductModel
+                            │
+                            ▼
+                 Product / ProductCategory
+                            │
+                            ▼
+                       Presentation
+
+This flow demonstrates the separation of responsibilities within the
+Products feature:
+
+Presentation manages UI and user interaction.
+Controllers manage asynchronous feature state.
+Providers wire dependencies together.
+Domain defines entities and repository contracts.
+Repositories coordinate access to product data.
+Data sources communicate with the external API.
+Models convert API JSON into typed application objects.
+ApiClient handles HTTP communication with the external service.
