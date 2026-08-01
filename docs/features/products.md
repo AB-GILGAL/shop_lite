@@ -480,3 +480,156 @@ ApiClient	Provides the HTTP communication mechanism
 
 The data layer therefore isolates external API concerns from the domain and
 presentation layers.
+
+---
+
+## 5. Domain Layer
+
+The domain layer defines the core product concepts and the repository
+contract used by the Products feature.
+
+Unlike the data layer, the domain layer does not contain API communication,
+JSON parsing, or other external data-source concerns.
+
+The Products domain layer contains:
+
+```text
+domain/
+├── entities/
+│   └── product.dart
+│
+└── repositories/
+    └── product_repository.dart
+
+### 5.1 Product Entity
+
+The Product class represents a product within the application's domain.
+
+It contains the following properties:
+
+Property	Type	Description
+id	int	Unique product identifier
+title	String	Product title
+slug	String	Product slug
+price	double	Product price
+description	String	Product description
+category	ProductCategory	Product's category
+images	List<String>	Product image URLs
+creationAt	DateTime	Product creation timestamp
+updatedAt	DateTime	Product last-update timestamp
+
+The entity uses a const constructor and all properties are declared as
+final, making the entity immutable after creation.
+
+### 5.2 ProductCategory Entity
+
+ProductCategory represents the category associated with a product.
+
+It contains:
+
+Property	Type	Description
+id	int	Unique category identifier
+name	String	Category name
+slug	String	Category slug
+image	String	Category image URL
+creationAt	DateTime	Category creation timestamp
+updatedAt	DateTime	Category last-update timestamp
+
+ProductCategory also uses a const constructor and final properties.
+
+The Product entity contains a ProductCategory object rather than exposing
+the API's raw category JSON structure.
+
+### 5.3 Product Repository
+
+The ProductRepository is an abstract interface that defines the operations
+required by the Products feature.
+
+abstract interface class ProductRepository {
+  Future<List<Product>> getProducts();
+
+  Future<Product> getProductById(int id);
+}
+
+The repository exposes two operations:
+
+Method	Return Type	Responsibility
+getProducts()	Future<List<Product>>	Retrieves the available products
+getProductById(int id)	Future<Product>	Retrieves a specific product by ID
+
+The repository works with domain entities rather than data-layer models.
+
+### 5.4 Domain Layer Responsibility
+
+The domain layer is responsible for defining:
+
+Product-related domain entities
+Product category representation
+Product repository operations
+The contract that the data layer must implement
+
+The domain layer does not directly perform HTTP requests or parse JSON.
+
+This keeps the core product concepts independent of the external Products API.
+
+### 5.5 Domain-to-Data Relationship
+
+The ProductRepository defines the contract, while the data layer provides
+the concrete implementation of that contract.
+
+The relationship is:
+
+Domain
+│
+├── Product
+├── ProductCategory
+└── ProductRepository
+          ▲
+          │ implements
+          │
+Data
+│
+└── ProductRepositoryImpl
+
+The domain therefore defines what the Products feature needs from a
+repository, while the data layer determines how those operations are
+performed.
+
+### 5.6 Domain Layer Summary
+Component	Responsibility
+Product	Represents a product in the application domain
+ProductCategory	Represents a product category
+ProductRepository	Defines product data operations required by the domain
+
+The domain layer provides the core product abstractions used by the rest of
+the Products feature without depending directly on the external API.
+
+
+### One important architectural point
+
+Notice the distinction we've now documented:
+
+```text
+             DOMAIN
+               │
+       defines the contract
+               │
+               ▼
+     ProductRepository
+               ▲
+               │
+        implements
+               │
+               │
+              DATA
+               │
+     ProductRepositoryImpl
+               │
+               ▼
+    ProductRemoteDataSource
+               │
+               ▼
+          ApiClient
+               │
+               ▼
+       Products API
