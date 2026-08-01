@@ -941,3 +941,170 @@ ProductDetailsPage
 
 The presentation layer therefore consumes domain entities and repository
 abstractions while remaining independent of the external API implementation.
+
+## 7. Providers Layer
+
+The providers layer is responsible for wiring the Products feature's dependencies
+together using Riverpod.
+
+It connects the network layer to the data layer and makes the repository
+available to the presentation layer through dependency injection.
+
+The Providers layer contains:
+
+```text
+providers/
+├── product_providers.dart
+└── product_providers.g.dart
+
+### 7.1 Product Remote Data Source Provider
+
+The productRemoteDataSourceProvider creates the implementation of the
+ProductRemoteDataSource interface.
+
+@riverpod
+ProductRemoteDataSource productRemoteDataSource(Ref ref) {
+  final apiClient = ref.read(apiClientProvider);
+
+  return ProductRemoteDataSourceImpl(apiClient: apiClient);
+}
+
+The provider obtains the shared ApiClient from the core network layer:
+
+apiClientProvider
+       ↓
+ProductRemoteDataSourceImpl
+
+This keeps the remote data source independent from the presentation layer
+while allowing its network dependency to be injected by Riverpod.
+
+### 7.2 Product Repository Provider
+
+The productRepositoryProvider creates the implementation of the domain
+ProductRepository contract.
+
+@riverpod
+ProductRepository productRepository(Ref ref) {
+  final remoteDataSource = ref.read(productRemoteDataSourceProvider);
+
+  return ProductRepositoryImpl(
+    remoteDataSource: remoteDataSource,
+  );
+}
+
+The repository receives its remote data source through dependency injection:
+
+productRemoteDataSourceProvider
+              ↓
+ProductRepositoryImpl
+              ↓
+ProductRepository
+
+The provider exposes the dependency using the domain interface
+ProductRepository rather than exposing the concrete
+ProductRepositoryImpl type.
+
+This allows the presentation layer to depend on the domain abstraction
+instead of the data-layer implementation.
+
+### 7.3 Complete Dependency Flow
+
+The Products feature dependency chain is:
+
+                    Core Network Layer
+                           │
+                           ▼
+                    apiClientProvider
+                           │
+                           ▼
+              ProductRemoteDataSource
+                           │
+                           ▼
+              ProductRemoteDataSourceImpl
+                           │
+                           ▼
+              ProductRepositoryImpl
+                           │
+                           ▼
+                  ProductRepository
+                           │
+                           ▼
+                 Product Controllers
+                           │
+                           ▼
+                   Presentation UI
+
+More specifically:
+
+ApiClient
+   ↓
+ProductRemoteDataSourceImpl
+   ↓
+ProductRepositoryImpl
+   ↓
+ProductController
+   ↓
+ProductsPage
+
+For product details:
+
+ApiClient
+   ↓
+ProductRemoteDataSourceImpl
+   ↓
+ProductRepositoryImpl
+   ↓
+ProductDetailsController
+   ↓
+ProductDetailsPage
+
+### 7.4 Generated Provider Code
+
+The file:
+
+product_providers.g.dart
+
+is generated automatically by Riverpod's code generation system from:
+
+product_providers.dart
+
+It should not be manually edited.
+
+Whenever the provider definitions change, regenerate the generated files
+using the project's configured build process.
+
+The generated file is committed to the repository because it is part of the
+current project structure and is required by the generated Riverpod provider
+references.
+
+### 7.5 Provider Responsibilities
+Provider	Responsibility
+productRemoteDataSourceProvider	Creates and injects the remote data source
+productRepositoryProvider	Creates and injects the product repository
+apiClientProvider	Provides the shared HTTP client from the core network layer
+
+The Providers layer therefore acts as the dependency wiring layer for the
+Products feature.
+
+It determines how the feature's abstractions are connected to their concrete
+implementations without requiring the presentation layer to construct those
+objects directly.
+
+
+### One important architectural point
+
+Notice the direction of dependency:
+
+```text
+Presentation
+     ↓
+Domain
+     ↑
+Data
+
+while Riverpod providers sit outside that business flow and wire the
+implementations together:
+
+                    Providers
+                   ↙          ↘
+              Data              Domain
