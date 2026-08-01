@@ -232,3 +232,251 @@ Data	Retrieves and converts external product data
 Domain	Defines product entities and repository contracts
 Presentation	Displays products and manages UI state
 Providers	Provides dependencies required by the feature
+
+---
+
+## 4. Data Layer
+
+The data layer is responsible for communicating with the external Products API,
+converting API responses into application models, and implementing the domain
+repository contract.
+
+The Products data layer contains three main components:
+
+```text
+data/
+├── datasources/
+│   └── product_remote_data_source.dart
+│
+├── models/
+│   └── product_model.dart
+│
+└── repositories/
+    └── product_repository_impl.dart
+
+The general data flow is:
+
+Products API
+     ↓
+ApiClient
+     ↓
+ProductRemoteDataSource
+     ↓
+ProductModel
+     ↓
+ProductRepositoryImpl
+
+
+### 4.1 Remote Data Source
+
+File:
+
+data/datasources/product_remote_data_source.dart
+
+The remote data source is responsible for retrieving product data from the
+external API.
+
+It defines the ProductRemoteDataSource contract:
+
+abstract interface class ProductRemoteDataSource {
+  Future<List<ProductModel>> getProducts();
+}
+
+The concrete implementation is:
+
+ProductRemoteDataSourceImpl
+
+It receives an ApiClient through its constructor:
+
+ProductRemoteDataSourceImpl({
+  required ApiClient apiClient,
+}) : _apiClient = apiClient;
+
+This keeps the data source independent of the concrete implementation of the
+HTTP client.
+
+Retrieving products
+
+The implementation calls the Products API through ApiClient:
+
+final response = await _apiClient.get<List<dynamic>>('/products');
+
+The response data is then converted into a list of ProductModel objects:
+
+return response.data!
+    .map(
+      (json) => ProductModel.fromJson(
+        json as Map<String, dynamic>,
+      ),
+    )
+    .toList();
+
+Therefore, the remote data source does not expose raw JSON to the rest of the
+application. It converts the API response into application models before
+returning the data.
+
+### 4.2 Product Model
+
+File:
+
+data/models/product_model.dart
+
+ProductModel extends the domain Product entity.
+
+Its responsibility is to represent product data received from the API while
+providing JSON serialization and deserialization.
+
+The model provides:
+
+ProductModel.fromJson(...)
+
+for converting API JSON into a Dart object, and:
+
+toJson()
+
+for converting the model back into JSON.
+
+JSON Deserialization
+
+The fromJson() factory reads the product fields returned by the API:
+
+id
+title
+slug
+price
+description
+category
+images
+creationAt
+updatedAt
+
+The API represents price as a numeric value, so the model converts it to
+double:
+
+price: (json['price'] as num).toDouble(),
+
+This allows the application domain to consistently work with a double
+price.
+
+4.3 Product Category Model
+
+Product category data is nested inside the product response.
+
+The model therefore uses a dedicated:
+
+ProductCategoryModel
+
+which extends the domain ProductCategory entity.
+
+It converts the nested category JSON using:
+
+ProductCategoryModel.fromJson(...)
+
+The category contains:
+
+id
+name
+slug
+image
+creationAt
+updatedAt
+
+The product model creates the category model while parsing the product:
+
+category: ProductCategoryModel.fromJson(
+  json['category'] as Map<String, dynamic>,
+),
+
+This keeps the nested category structure strongly typed rather than passing
+raw JSON through the application.
+
+### 4.4 Product Images
+
+The API returns product images as a JSON list.
+
+The model converts this list into a Dart List<String>:
+
+images: (json['images'] as List<dynamic>)
+    .map((image) => image as String)
+    .toList(),
+
+The resulting list is available through the domain product entity and is used
+by the presentation layer when rendering product images.
+
+### 4.5 Repository Implementation
+
+File:
+
+data/repositories/product_repository_impl.dart
+
+ProductRepositoryImpl is the concrete implementation of the domain
+ProductRepository interface.
+
+Its responsibility is to connect the domain repository contract with the
+actual data source.
+
+The dependency relationship is:
+
+ProductRepository
+        ↑
+        │ implements
+        │
+ProductRepositoryImpl
+        │
+        ↓
+ProductRemoteDataSource
+
+The repository implementation therefore acts as the boundary between the
+domain layer and the data layer.
+
+The domain layer depends on the repository abstraction, while the concrete
+implementation determines how product data is actually retrieved.
+
+### 4.6 Why the Data Layer Does Not Appear in the UI
+
+The presentation layer does not directly call:
+
+ApiClient
+
+or:
+
+ProductRemoteDataSource
+
+Instead, the UI ultimately receives product data through the application's
+state-management and dependency-injection layers.
+
+This separation prevents UI code from becoming responsible for:
+
+HTTP requests
+API response parsing
+JSON conversion
+Repository implementation details
+
+The resulting flow is:
+
+UI
+ ↓
+Controller
+ ↓
+Domain Repository
+ ↓
+Repository Implementation
+ ↓
+Remote Data Source
+ ↓
+ApiClient
+ ↓
+Products API
+
+
+### 4.7 Data Layer Responsibility Summary
+Component	Responsibility
+ProductRemoteDataSource	Defines access to remote product data
+ProductRemoteDataSourceImpl	Calls the Products API and converts responses into models
+ProductModel	Converts product JSON into a typed application model
+ProductCategoryModel	Converts nested category JSON into a typed category model
+ProductRepositoryImpl	Implements the domain repository and coordinates data access
+ApiClient	Provides the HTTP communication mechanism
+
+The data layer therefore isolates external API concerns from the domain and
+presentation layers.
